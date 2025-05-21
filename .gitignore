@@ -5,3 +5,12 @@
 /coverage
 /logs
 /temp
+/__pycache__
+/.DS_Store
+/uploads
+/.env
+/Img
+/PDFs
+/.vscode
+/.idea
+/src/__pycache__
