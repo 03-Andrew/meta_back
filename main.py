@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -10,6 +10,7 @@ import shutil
 import exiftool
 import json
 import tempfile
+from typing import List
 from pathlib import Path
 import aspose.words as aw
 # -------------------------
@@ -18,7 +19,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "https://docs.google.com"],  # ✅ Use your React dev server URL
+    allow_origins=["http://localhost:5174", "http://localhost:5173","https://docs.google.com"],  # ✅ Use your React dev server URL
     allow_credentials=True,
     allow_methods=["*"],  # or restrict to ['POST']
     allow_headers=["*"],  # or restrict to ['Content-Type', 'Authorization']
@@ -165,23 +166,50 @@ async def view_metadata_file(file_id: str):
         "filtered": filtered
     }
 
-@app.post("/uploadfile/")
-async def create_upload_file(file: UploadFile = File(...)):
-    # Read the entire file once
-    file_bytes = await file.read()
+@app.post("/upload/")
+async def create_upload_files(files: List[UploadFile] = File(...), clean: bool = False):
+    async def process_single_file(file: UploadFile):
+        try:
+            file_bytes = await file.read()
+            metadata, filtered = view_metadata(
+                file_bytes, 
+                suffix=f".{file.filename.split('.')[-1]}"
+            )
+            file_id = save_file_bytes(file_bytes, file.filename)
+            
+            result = {
+                "status": "success",
+                "filename": file.filename,
+                "fileid": file_id,
+                "filetype": file.content_type,
+                "metadata": metadata,
+                "filtered": filtered
+            }
 
-    # Get metadata first from the bytes
-    metadata, filtered = view_metadata(file_bytes, suffix=f".{file.filename.split('.')[-1]}")
+            if clean:
+                cleaned_result = await clean_file(file_id)
+                result["cleaned"] = cleaned_result
 
-    # Then save the same bytes to disk
-    file_id = save_file_bytes(file_bytes, file.filename)
+            return result
+        except Exception as e:
+            return {
+                "status": "error",
+                "filename": file.filename,
+                "error": str(e)
+            }
 
+    results = await asyncio.gather(
+        *[process_single_file(file) for file in files]
+    )
+    
+    file_ids = [r["fileid"] for r in results if r["status"] == "success"]
+    
     return {
-        "filename": file.filename,
-        "fileid": file_id,
-        "filetype": file.content_type,
-        "metadata": metadata,
-        "filtered": filtered
+        "total_files": len(files),
+        "successful": len([r for r in results if r["status"] == "success"]),
+        "files": results,
+        "file_ids": file_ids,
+        "cleaned": clean
     }
 
 @app.get("/getfile/{file_id}")
@@ -220,6 +248,46 @@ async def clean_file(file_id: str):
         "download_url": f"/download/cleaned/{file_id}"
     }
 
+@app.post("/clean/batch")
+async def clean_files(file_ids: List[str] = Body(...)):
+    cleaned_results = []
+
+    for file_id in file_ids:
+        file_path = os.path.join(TEMP_DIR, file_id)
+
+        if not os.path.exists(file_path):
+            cleaned_results.append({
+                "file": file_id,
+                "error": "File not found"
+            })
+            continue
+
+        try:
+            if get_file_extension(file_path) in ['.docx', '.doc']:
+                cleaned_file_path = remove_metadata_docx(file_path, file_id)
+            else:
+                remove_metadata_exiftool(file_path)
+
+            with open(file_path, 'rb') as f:
+                cleaned_bytes = f.read()
+
+            metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
+
+            cleaned_results.append({
+                "message": "File cleaned successfully",
+                "file": file_id,
+                "metadata": metadata,
+                "filtered_metadata": filtered,
+                "download_url": f"/download/cleaned/{file_id}"
+            })
+        except Exception as e:
+            cleaned_results.append({
+                "file": file_id,
+                "error": str(e)
+            })
+
+    return {"results": cleaned_results}
+
 @app.get("/clean_docx/{file_id}")
 async def clean_docx_file(file_id: str):
     file_path = os.path.join(TEMP_DIR, file_id)
@@ -251,15 +319,6 @@ async def download_cleaned_file(file_id: str):
         raise HTTPException(status_code=404, detail="Cleaned file not found")
     
     return FileResponse(cleaned_file_path, filename=f"{file_id}")
-
-@app.delete("/delete/{file_id}")
-async def delete_file(file_id: str):
-    file_path = os.path.join(TEMP_DIR, file_id)
-    deleted = delete_file(file_path)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    return {"message": "File deleted successfully"}
 
 
 @app.post("/upload/clean/")
