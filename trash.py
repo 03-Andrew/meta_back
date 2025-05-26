@@ -1,3 +1,28 @@
+
+# @app.get("/clean_docx/{file_id}")
+# async def clean_docx_file(file_id: str):
+#     file_path = os.path.join(TEMP_DIR, file_id)
+#     if not os.path.exists(file_path):
+#         raise HTTPException(status_code=404, detail="File not found")
+    
+#     cleaned_file_path = remove_metadata_docx(file_path, file_id)
+
+#     with open(cleaned_file_path, 'rb') as f:
+#         cleaned_bytes = f.read()
+    
+#     # Get metadata of cleaned file
+#     metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
+
+#     return {
+#         "message": "File cleaned successfully",
+#         "file": file_id,
+#         "metadata": metadata,
+#         "filtered_metadata": filtered,
+#         "download_url": f"/download/cleaned/{file_id}"
+#     }
+
+
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,27 +41,8 @@ import aspose.words as aw
 from zipfile import ZipFile
 from io import BytesIO
 # -------------------------
-TEMP_DIR = "uploads"
-MAX_AGE_SECONDS = 5 * 60  # 5 minutes
 
-os.makedirs(TEMP_DIR, exist_ok=True)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Start the background cleanup task
-    async def cleanup_loop():
-        while True:
-            delete_old_files()
-            await asyncio.sleep(60)  # run every minute
-
-    task = asyncio.create_task(cleanup_loop())
-
-    yield  # app is now running
-
-    task.cancel()
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +52,10 @@ app.add_middleware(
     allow_headers=["*"],  # or restrict to ['Content-Type', 'Authorization']
 )
 
+TEMP_DIR = "uploads"
+MAX_AGE_SECONDS = 5 * 60  # 5 minutes
 
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 def delete_old_files():
@@ -125,11 +134,14 @@ def remove_metadata_docx(file_path, file_id):
     return os.path.join(TEMP_DIR, f"{file_id}")
 
 def create_zip_file(file_paths, zip_name):
-    zip_path = os.path.join(TEMP_DIR, zip_name)
+    zip_name = f"{zip_name}_{uuid.uuid4().hex[:8]}"
+    zip_path = os.path.join(TEMP_DIR, f"{zip_name}.zip")
+    
     with ZipFile(zip_path, 'w') as zip_file:
         for file_path in file_paths:
             zip_file.write(file_path, arcname=os.path.basename(file_path))
-    return zip_path
+    
+    return f"{zip_name}.zip"  
 
 def delete_file(file_path):
     try:
@@ -140,31 +152,25 @@ def delete_file(file_path):
         print(f"⚠️ File not found: {file_path}")
         return False
     
-def create_zip_file(file_paths, zip_name):
-    zip_name = f"{zip_name}_{uuid.uuid4().hex[:8]}"
-    zip_path = os.path.join(TEMP_DIR, f"{zip_name}.zip")
-    
-    with ZipFile(zip_path, 'w') as zip_file:
-        for file_path in file_paths:
-            file_abs_path = os.path.join(TEMP_DIR, file_path)
-            original_name = os.path.basename(file_path)
-
-            # Remove UUID if present and prefix 'cleaned_'
-            # e.g., "filename_123abc.pdf" → "cleaned_filename.pdf"
-            base, ext = os.path.splitext(original_name)
-            base_cleaned = base.split('_')[:-1]  # remove UUID suffix if any
-            cleaned_name = f"cleaned_{base_cleaned}{ext}"
-
-            zip_file.write(file_abs_path, arcname=cleaned_name)
-    
-    return f"{zip_name}.zip"
-
 def get_file_extension(file_path):
     return os.path.splitext(file_path)[1].lower()
 # ----------------------------------- 
 #               APIs
 # -----------------------------------
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background cleanup task
+    async def cleanup_loop():
+        while True:
+            delete_old_files()
+            await asyncio.sleep(60)  # run every minute
+
+    task = asyncio.create_task(cleanup_loop())
+
+    yield  # app is now running
+
+    task.cancel()
 
 @app.post("/viewmetadata/")
 async def view_metadata_endpoint(file: UploadFile = File(...)):
@@ -176,6 +182,7 @@ async def view_metadata_endpoint(file: UploadFile = File(...)):
         "metadata": metadata, 
         "filtered": filtered
     }
+
 
 @app.get("/viewmetadata1/{file_id}")
 async def view_metadata_file(file_id: str):
@@ -248,6 +255,7 @@ async def get_file(file_id: str):
     
     return FileResponse(file_path)
 
+
 @app.get("/clean/{file_id}")
 async def clean_file(file_id: str):
     file_path = os.path.join(TEMP_DIR, file_id)
@@ -275,9 +283,11 @@ async def clean_file(file_id: str):
         "download_url": f"/download/cleaned/{file_id}"
     }
 
-@app.post("/clean/batch/")
+@app.post("/clean/batch")
 async def clean_files(file_ids: List[str] = Body(...)):
     cleaned_results = []
+    # file_paths = []
+
     for file_id in file_ids:
         file_path = os.path.join(TEMP_DIR, file_id)
 
@@ -299,46 +309,41 @@ async def clean_files(file_ids: List[str] = Body(...)):
 
             metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
 
+            # file_paths.append(cleaned_file_path)
+
             cleaned_results.append({
                 "message": "File cleaned successfully",
                 "file": file_id,
-                # "metadata": metadata,
-                # "filtered_metadata": filtered,
-                # "download_url": f"/download/cleaned/{file_id}"
+                "metadata": metadata,
+                "filtered_metadata": filtered,
+                "download_url": f"/download/cleaned/{file_id}"
             })
         except Exception as e:
             cleaned_results.append({
                 "file": file_id,
                 "error": str(e)
             })
-    download_url = ""
-    if len(file_ids) > 1:
-        zip_name = create_zip_file(file_ids, "cleaned_files")
-        download_url = f"/download/cleaned/{zip_name}"
-    else:
-        
-        download_url = f"/download/cleaned/{file_ids[0]}"
 
-    return {"results": cleaned_results, "download_url": download_url}
+    # # Create a zip file of all cleaned files
+    # if len(file_paths) > 1:
+    #     zip_name = "cleaned_files"
+    #     zip_filename = create_zip_file(file_paths, zip_name)
+    #     cleaned_results.append({
+    #         "zip_download_url": f"/download/cleaned/{zip_filename}"
+    #     })
+    
+
+    return {"results": cleaned_results}
 
 
 @app.get("/download/cleaned/{file_id}")
 async def download_cleaned_file(file_id: str):
     cleaned_file_path = os.path.join(TEMP_DIR, file_id)
-
     if not os.path.exists(cleaned_file_path):
         raise HTTPException(status_code=404, detail="Cleaned file not found")
     
-    # Extract base and extension
-    base_name, ext = os.path.splitext(file_id)
-    
-    # Remove UUID (assumes it's the second part after `_`)
-    base_parts = base_name.split('_')
-    cleaned_base = base_parts[0] if len(base_parts) > 1 else base_name
-    
-    download_name = f"cleaned_{cleaned_base}{ext}"
+    return FileResponse(cleaned_file_path, filename=f"{file_id}")
 
-    return FileResponse(cleaned_file_path, filename=download_name)
 
 @app.post("/upload/clean/")
 async def upload_clean_file(file: UploadFile = File(...)):
