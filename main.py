@@ -366,3 +366,9 @@ async def upload_clean_file(file: UploadFile = File(...)):
         "filtered_metadata": filtered,
         "download_url": f"/download/cleaned/{file_id}"
     }
+
+
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000)
