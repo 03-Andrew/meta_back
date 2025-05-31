@@ -15,6 +15,8 @@ from pathlib import Path
 import aspose.words as aw
 from zipfile import ZipFile
 from io import BytesIO
+import zipfile
+
 # -------------------------
 TEMP_DIR = "uploads"
 MAX_AGE_SECONDS = 5 * 60  # 5 minutes
@@ -116,13 +118,29 @@ def remove_metadata_exiftool(file_path):
         et.execute(b"-overwrite_original", b"-all=", file_path.encode('utf-8'))
 
 def remove_metadata_docx(file_path, file_id):
-    doc = aw.Document(file_path)
-    doc.built_in_document_properties.clear()
-    doc.custom_document_properties.clear()
-    doc.accept_all_revisions()
-    
-    doc.save(os.path.join(TEMP_DIR, f"{file_id}"))
-    return os.path.join(TEMP_DIR, f"{file_id}")
+    output_path = os.path.join(TEMP_DIR, f"{file_id}")
+
+    # Create a temporary in-memory DOCX without metadata
+    buffer = BytesIO()
+
+    with zipfile.ZipFile(file_path, 'r') as zin:
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                # Remove metadata files
+                if item.filename in [
+                    "docProps/core.xml",
+                    "docProps/app.xml",
+                    "custom.xml"
+                ]:
+                    continue
+                zout.writestr(item, zin.read(item.filename))
+
+    # Write the cleaned DOCX file to TEMP_DIR
+    os.makedirs(TEMP_DIR, exist_ok=True)
+    with open(output_path, 'wb') as f:
+        f.write(buffer.getvalue())
+
+    return output_path
 
 def create_zip_file(file_paths, zip_name):
     zip_path = os.path.join(TEMP_DIR, zip_name)
