@@ -16,8 +16,14 @@ import aspose.words as aw
 from zipfile import ZipFile
 from io import BytesIO
 import zipfile
+from openpyxl import load_workbook
+from openpyxl.packaging.core import DocumentProperties
+import logging
 
 # -------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 TEMP_DIR = "uploads"
 MAX_AGE_SECONDS = 5 * 60  # 5 minutes
 
@@ -141,6 +147,27 @@ def remove_metadata_docx(file_path, file_id):
         f.write(buffer.getvalue())
 
     return output_path
+
+def remove_metadata_excel(file_path, file_id):
+    output_path = os.path.join(TEMP_DIR, f"{file_id}")
+
+    try:
+        wb = load_workbook(file_path)
+        wb.properties = DocumentProperties()
+
+        buffer = BytesIO()
+        wb.save(buffer)
+
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(buffer.getvalue())
+
+        print(f"[✓] Cleaned metadata: {file_path}")
+        return output_path
+
+    except Exception as e:
+        print(f"[!] Failed to clean metadata from {file_path}: {e}")
+        return None
 
 def create_zip_file(file_paths, zip_name):
     zip_path = os.path.join(TEMP_DIR, zip_name)
@@ -272,11 +299,19 @@ async def clean_file(file_id: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    if get_file_extension(file_path) in ['.docx', '.doc']:
-        # If it's a DOCX file, use Aspose to clean it
-        cleaned_file_path = remove_metadata_docx(file_path, file_id)
-    else:
-        remove_metadata_exiftool(file_path)
+    try:
+        if get_file_extension(file_path) in ['.docx', '.doc']:
+            logger.info("Processing DOCX file")
+            remove_metadata_docx(file_path, file_id)
+        elif get_file_extension(file_path) in ['.xlsx']:
+            logger.info("Processing Excel file")
+            remove_metadata_excel(file_path, file_id)
+        else:
+            logger.info("Processing with ExifTool")
+            remove_metadata_exiftool(file_path)
+    except Exception as e:
+        logger.error(f"Error processing file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error cleaning file")
 
     # Read the cleaned file to get its metadata
     with open(file_path, 'rb') as f:
@@ -295,6 +330,7 @@ async def clean_file(file_id: str):
 
 @app.post("/clean/batch/")
 async def clean_files(file_ids: List[str] = Body(...)):
+    print("hey", flush=True)
     cleaned_results = []
     for file_id in file_ids:
         file_path = os.path.join(TEMP_DIR, file_id)
@@ -308,8 +344,14 @@ async def clean_files(file_ids: List[str] = Body(...)):
 
         try:
             if get_file_extension(file_path) in ['.docx', '.doc']:
-                cleaned_file_path = remove_metadata_docx(file_path, file_id)
+                x = remove_metadata_docx(file_path, file_id)
+                logger.info("Processing DOCX file")
+            elif get_file_extension(file_path) in ['.xlsx']:
+                x = remove_metadata_excel(file_path, file_id)
+                logger.info("Processing Exel file")
+
             else:
+                logger.info("Processing Exiftool")
                 remove_metadata_exiftool(file_path)
 
             with open(file_path, 'rb') as f:
@@ -329,6 +371,7 @@ async def clean_files(file_ids: List[str] = Body(...)):
                 "file": file_id,
                 "error": str(e)
             })
+
     download_url = ""
     if len(file_ids) > 1:
         zip_name = create_zip_file(file_ids, "cleaned_files")
