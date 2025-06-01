@@ -12,7 +12,6 @@ import json
 import tempfile
 from typing import List
 from pathlib import Path
-import aspose.words as aw
 from zipfile import ZipFile
 from io import BytesIO
 import zipfile
