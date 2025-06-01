@@ -18,11 +18,8 @@ from io import BytesIO
 import zipfile
 from openpyxl import load_workbook
 from openpyxl.packaging.core import DocumentProperties
-import logging
 
 # -------------------------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 TEMP_DIR = "uploads"
 MAX_AGE_SECONDS = 5 * 60  # 5 minutes
@@ -301,16 +298,12 @@ async def clean_file(file_id: str):
 
     try:
         if get_file_extension(file_path) in ['.docx', '.doc']:
-            logger.info("Processing DOCX file")
             remove_metadata_docx(file_path, file_id)
         elif get_file_extension(file_path) in ['.xlsx']:
-            logger.info("Processing Excel file")
             remove_metadata_excel(file_path, file_id)
         else:
-            logger.info("Processing with ExifTool")
             remove_metadata_exiftool(file_path)
     except Exception as e:
-        logger.error(f"Error processing file {file_id}: {e}")
         raise HTTPException(status_code=500, detail="Error cleaning file")
 
     # Read the cleaned file to get its metadata
@@ -345,13 +338,9 @@ async def clean_files(file_ids: List[str] = Body(...)):
         try:
             if get_file_extension(file_path) in ['.docx', '.doc']:
                 x = remove_metadata_docx(file_path, file_id)
-                logger.info("Processing DOCX file")
             elif get_file_extension(file_path) in ['.xlsx']:
                 x = remove_metadata_excel(file_path, file_id)
-                logger.info("Processing Exel file")
-
             else:
-                logger.info("Processing Exiftool")
                 remove_metadata_exiftool(file_path)
 
             with open(file_path, 'rb') as f:
@@ -407,23 +396,16 @@ async def upload_clean_file(file: UploadFile = File(...)):
 
     file_id = save_file_bytes(file_bytes, file.filename)
     file_path = os.path.join(TEMP_DIR, file_id)
-    cleaned_file_path = os.path.join(TEMP_DIR, {file_id})
-
-    shutil.copy2(file_path, cleaned_file_path)
-    with exiftool.ExifTool() as et:
-        et.execute(b"-overwrite_original", b"-all=", cleaned_file_path.encode('utf-8'))
-    
-     # Read the cleaned file to get its metadata
-    with open(cleaned_file_path, 'rb') as f:
-        cleaned_bytes = f.read()
-
+    if get_file_extension(file_path) in ['.docx', '.doc']:
+        x = remove_metadata_docx(file_path, file_id)
+    elif get_file_extension(file_path) in ['.xlsx']:
+        x = remove_metadata_excel(file_path, file_id)
+    else:
+        remove_metadata_exiftool(file_path)
     # Get metadata of cleaned file
-    metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
 
     return {
         "message": "File cleaned successfully",
         "file": file_id,
-        "metadata": metadata,
-        "filtered_metadata": filtered,
         "download_url": f"/download/cleaned/{file_id}"
     }
