@@ -37,7 +37,7 @@ import json
 import tempfile
 from typing import List
 from pathlib import Path
-import aspose.words as aw
+# import aspose.words as aw
 from zipfile import ZipFile
 from io import BytesIO
 # -------------------------
@@ -125,12 +125,12 @@ def remove_metadata_exiftool(file_path):
         et.execute(b"-overwrite_original", b"-all=", file_path.encode('utf-8'))
 
 def remove_metadata_docx(file_path, file_id):
-    doc = aw.Document(file_path)
-    doc.built_in_document_properties.clear()
-    doc.custom_document_properties.clear()
-    doc.accept_all_revisions()
+    # doc = aw.Document(file_path)
+    # doc.built_in_document_properties.clear()
+    # doc.custom_document_properties.clear()
+    # doc.accept_all_revisions()
     
-    doc.save(os.path.join(TEMP_DIR, f"{file_id}"))
+    # doc.save(os.path.join(TEMP_DIR, f"{file_id}"))
     return os.path.join(TEMP_DIR, f"{file_id}")
 
 def create_zip_file(file_paths, zip_name):

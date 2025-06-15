@@ -39,7 +39,6 @@ async def lifespan(app: FastAPI):
 
     task.cancel()
 
-
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -49,9 +48,6 @@ app.add_middleware(
     allow_methods=["*"],  # or restrict to ['POST']
     allow_headers=["*"],  # or restrict to ['Content-Type', 'Authorization']
 )
-
-
-
 
 def delete_old_files():
     now = time.time()
@@ -66,27 +62,6 @@ def delete_old_files():
 def view_metadata(file_bytes, suffix):
     """Reads metadata from raw file bytes using a temporary file."""
 
-    friendly_tags = [
-        "File:FileName",
-        "File:FileSize",
-        "File:FileType",
-        "EXIF:Make",
-        "EXIF:Model",
-        "EXIF:DateTimeOriginal",
-        "EXIF:CreateDate",
-        "EXIF:GPSLatitude",
-        "EXIF:GPSLongitude",
-        "EXIF:GPSAltitude",
-        "EXIF:LensModel",
-        "EXIF:FocalLength",
-        "EXIF:ExposureTime",
-        "EXIF:FNumber",
-        "EXIF:ISO",
-        "QuickTime:Rotation",
-        "QuickTime:ImagePixelDepth",
-        "QuickTime:HandlerType"
-    ]
-
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file_bytes)
         tmp.flush()
@@ -96,8 +71,8 @@ def view_metadata(file_bytes, suffix):
         result = et.execute(b"-json", tmp_path.encode('utf-8'))
         metadata = json.loads(result)[0]
 
-    filtered = {tag: metadata[tag] for tag in friendly_tags if tag in metadata}
-    return metadata, filtered
+    deletable = get_deletable_metadata_exiftool(file_bytes, suffix=suffix)
+    return metadata, deletable
 
 def save_file_bytes(file_bytes: bytes, original_filename: str):
     upload_dir = os.path.join(os.getcwd(), TEMP_DIR)
@@ -202,6 +177,39 @@ def create_zip_file(file_paths, zip_name):
 
 def get_file_extension(file_path):
     return os.path.splitext(file_path)[1].lower()
+
+def get_exiftool_metadata(file_path):
+    with exiftool.ExifTool() as et:
+        result = et.execute(b"-json", file_path.encode("utf-8"))
+        return json.loads(result)[0]
+
+
+def get_deletable_metadata_exiftool(file_bytes, suffix=".jpg"):
+    # Step 1: Save original file to temp
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file_bytes)
+        tmp.flush()
+        tmp_path = tmp.name
+
+    try:
+        # Step 2: Get original metadata
+        original_metadata = get_exiftool_metadata(tmp_path)
+
+        # Step 3: Overwrite temp file with deleted metadata version
+        with exiftool.ExifTool() as et:
+            et.execute(b"-all=", b"-overwrite_original", tmp_path.encode("utf-8"))
+
+        # Step 4: Get cleaned metadata
+        cleaned_metadata = get_exiftool_metadata(tmp_path)
+
+        # Step 5: Compare and extract deletable fields
+        deletable = {k: v for k, v in original_metadata.items() if k not in cleaned_metadata}
+
+    finally:
+        os.remove(tmp_path)
+
+    return deletable
+
 # ----------------------------------- 
 #               APIs
 # -----------------------------------
@@ -369,7 +377,6 @@ async def clean_files(file_ids: List[str] = Body(...)):
         download_url = f"/download/cleaned/{file_ids[0]}"
 
     return {"results": cleaned_results, "download_url": download_url}
-
 
 @app.get("/download/cleaned/{file_id}")
 async def download_cleaned_file(file_id: str):
