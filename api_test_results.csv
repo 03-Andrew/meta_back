@@ -1,0 +1,7 @@
+file,cpu_user,cpu_sys,memory_MB,wall_time,status,cleaned
+HEIC_test.HEIC,0.0,0.0,3.5664,4.6156,200,False
+DOCX_test1.docx,0.0,0.0,6.7539,2.102,200,False
+PDF_test3.pdf,0.0156,0.0156,25.3828,3.937,200,False
+HEIC_test2.HEIC,0.0,0.0,-33.2227,3.89,200,False
+XLSX_test2.xlsx,0.0,0.0,-0.8242,2.041,200,False
+PNG_test2.PNG,0.0156,0.0,8.2266,5.0894,200,False

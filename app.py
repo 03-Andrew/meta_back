@@ -20,6 +20,9 @@ from openpyxl.packaging.core import DocumentProperties
 from typing import Dict, List
 from DocxHelper import DocxMetadataHelper as DM
 from ExcelHelper import ExcelMetadataHelper as EM
+from monitor import PerformanceMiddleware
+
+
 
 # -------------------------
 
@@ -43,6 +46,8 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(PerformanceMiddleware)
+
 
 
 EXTENSION_GROUPS = {
