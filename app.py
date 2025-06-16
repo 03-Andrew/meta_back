@@ -17,6 +17,9 @@ from io import BytesIO
 import zipfile
 from openpyxl import load_workbook
 from openpyxl.packaging.core import DocumentProperties
+from typing import Dict, List
+from DocxHelper import DocxMetadataHelper as DM
+from ExcelHelper import ExcelMetadataHelper as EM
 
 # -------------------------
 
@@ -41,6 +44,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
+EXTENSION_GROUPS = {
+    ".jpg": "JPEG/HEIC/TIFF",
+    ".jpeg": "JPEG/HEIC/TIFF",
+    ".heic": "JPEG/HEIC/TIFF",
+    ".tiff": "JPEG/HEIC/TIFF",
+    ".tif": "JPEG/HEIC/TIFF",
+    ".png": "PNG",
+    ".pdf": "PDF",
+    ".docx": "DOCX/XLSX",
+    ".xlsx": "DOCX/XLSX",
+    ".mp4": "MP4/MOV",
+    ".mov": "MP4/MOV",
+    ".mp3": "MP3",
+}
+
+with open("meta.json", "r") as f:
+    metadata_mapping = json.load(f)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5174", "http://localhost:5173","https://docs.google.com"],  # ✅ Use your React dev server URL
@@ -61,6 +83,22 @@ def delete_old_files():
 
 def view_metadata(file_bytes, suffix):
     """Reads metadata from raw file bytes using a temporary file."""
+    if suffix == ".docx":
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_bytes)
+            tmp.flush()  # Ensure all bytes are written
+            meta = DM.get_metadata(tmp.name)
+            return {}, {}, meta
+        
+    if suffix == ".xlsx":
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_bytes)
+            tmp.flush()
+            meta = EM.get_metadata(tmp.name)
+            return {}, {}, meta
+        
+    group = EXTENSION_GROUPS.get(suffix.lower())
+    allowed = set(metadata_mapping.get(group, []))
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file_bytes)
@@ -68,11 +106,22 @@ def view_metadata(file_bytes, suffix):
         tmp_path = tmp.name
         
     with exiftool.ExifTool() as et:
-        result = et.execute(b"-json", tmp_path.encode('utf-8'))
+        result = et.execute(b"-G", b"-j", tmp_path.encode("utf-8"))
         metadata = json.loads(result)[0]
 
     deletable = get_deletable_metadata_exiftool(file_bytes, suffix=suffix)
-    return metadata, deletable
+
+    allowed = set()
+    if group:
+        allowed = set(metadata_mapping.get(group, []))
+        if group == "JPEG/HEIC/TIFF":
+            exif_keys = {k for k in metadata.keys() if k.startswith("EXIF:")}
+            allowed |= exif_keys
+
+    selectable = {k: v for k, v in metadata.items() if k in allowed}
+
+
+    return metadata, deletable, selectable
 
 def save_file_bytes(file_bytes: bytes, original_filename: str):
     upload_dir = os.path.join(os.getcwd(), TEMP_DIR)
@@ -93,6 +142,17 @@ def save_file_bytes(file_bytes: bytes, original_filename: str):
 def remove_metadata_exiftool(file_path):
     with exiftool.ExifTool() as et:
         et.execute(b"-overwrite_original", b"-all=", file_path.encode('utf-8'))
+
+def remove_metadata_tags_exiftool(file_path: str, tags: List[str]):
+    args = [
+            b"-overwrite_original",
+            b"-m",
+            *[f"-{tag}=".encode("utf-8") for tag in tags],
+            file_path.encode("utf-8"),
+        ]    
+    print(args, flush=True)
+    with exiftool.ExifTool() as et:
+        et.execute(*args)
 
 def remove_metadata_docx(file_path, file_id):
     output_path = os.path.join(TEMP_DIR, f"{file_id}")
@@ -119,6 +179,9 @@ def remove_metadata_docx(file_path, file_id):
 
     return output_path
 
+def remove_metadata_tags_docx(file_path: str, tags: List[str]):
+    DM.delete_metadata(file_path, tags)
+
 def remove_metadata_excel(file_path, file_id):
     output_path = os.path.join(TEMP_DIR, f"{file_id}")
 
@@ -139,6 +202,9 @@ def remove_metadata_excel(file_path, file_id):
     except Exception as e:
         print(f"[!] Failed to clean metadata from {file_path}: {e}")
         return None
+
+def remove_metadata_tags_excel(file_path: str, tags: List[str]):
+    EM.delete_metadata(file_path, tags)
 
 def create_zip_file(file_paths, zip_name):
     zip_path = os.path.join(TEMP_DIR, zip_name)
@@ -183,7 +249,6 @@ def get_exiftool_metadata(file_path):
         result = et.execute(b"-json", file_path.encode("utf-8"))
         return json.loads(result)[0]
 
-
 def get_deletable_metadata_exiftool(file_bytes, suffix=".jpg"):
     # Step 1: Save original file to temp
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -210,6 +275,14 @@ def get_deletable_metadata_exiftool(file_bytes, suffix=".jpg"):
 
     return deletable
 
+def remove_metadata_fields(file_path: str, fields_to_remove: list[str]):
+    with exiftool.ExifTool() as et:
+        args = [b"-overwrite_original", b"-ignoreMinorErrors"]
+        for field in fields_to_remove:
+            args.append(f"-{field}=".encode("utf-8"))
+        args.append(file_path.encode("utf-8"))
+        et.execute(*args)
+
 # ----------------------------------- 
 #               APIs
 # -----------------------------------
@@ -218,12 +291,13 @@ def get_deletable_metadata_exiftool(file_bytes, suffix=".jpg"):
 @app.post("/viewmetadata/")
 async def view_metadata_endpoint(file: UploadFile = File(...)):
     file_bytes = await file.read()
-    metadata, filtered = view_metadata(file_bytes, suffix=f".{file.filename.split('.')[-1]}")
+    metadata, filtered, selectable = view_metadata(file_bytes, suffix=f".{file.filename.split('.')[-1]}")
 
     return {
         "filename": file.filename, 
         "metadata": metadata, 
-        "filtered": filtered
+        "filtered": filtered,
+        "selectable": selectable
     }
 
 @app.get("/viewmetadata1/{file_id}")
@@ -235,12 +309,13 @@ async def view_metadata_file(file_id: str):
     with open(file_path, 'rb') as f:
         file_bytes = f.read()
 
-    metadata, filtered = view_metadata(file_bytes, suffix=os.path.splitext(file_id)[1])
+    metadata, filtered, selectable = view_metadata(file_bytes, suffix=os.path.splitext(file_id)[1])
 
     return {
         "filename": file_id,
         "metadata": metadata,
-        "filtered": filtered
+        "filtered": filtered,
+        "selectable": selectable
     }
 
 @app.post("/upload/")
@@ -248,7 +323,7 @@ async def create_upload_files(files: List[UploadFile] = File(...), clean: bool =
     async def process_single_file(file: UploadFile):
         try:
             file_bytes = await file.read()
-            metadata, filtered = view_metadata(
+            metadata, filtered, selectable = view_metadata(
                 file_bytes, 
                 suffix=f".{file.filename.split('.')[-1]}"
             )
@@ -260,7 +335,8 @@ async def create_upload_files(files: List[UploadFile] = File(...), clean: bool =
                 "fileid": file_id,
                 "filetype": file.content_type,
                 "metadata": metadata,
-                "filtered": filtered
+                "filtered": filtered,
+                "selectable": selectable
             }
 
             if clean:
@@ -353,7 +429,7 @@ async def clean_files(file_ids: List[str] = Body(...)):
             with open(file_path, 'rb') as f:
                 cleaned_bytes = f.read()
 
-            metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
+            # metadata, filtered = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
 
             cleaned_results.append({
                 "message": "File cleaned successfully",
@@ -375,6 +451,60 @@ async def clean_files(file_ids: List[str] = Body(...)):
     else:
         
         download_url = f"/download/cleaned/{file_ids[0]}"
+
+    return {"results": cleaned_results, "download_url": download_url}
+
+
+@app.post("/clean/batch/v2/")
+async def clean_files(files_to_clean: Dict[str, List[str]] = Body(...)):
+    cleaned_results = []
+    for file_id, tags in files_to_clean.items():
+        file_path = os.path.join(TEMP_DIR, file_id)
+        if not os.path.exists(file_path):
+            cleaned_results.append({"file": file_id, "error": "File not found"})
+            continue
+
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+
+            # Word docs & spreadsheets
+            if ext in [".docx", ".doc"]:
+                path = os.path.join(TEMP_DIR, file_id)
+                remove_metadata_tags_docx(path, tags)
+            elif ext in [".xlsx"]:
+                path = os.path.join(TEMP_DIR, file_id)
+                remove_metadata_tags_excel(path, tags)
+            # Images, PDFs, etc.
+            else:
+                if len(tags) == 1 and tags[0] == "all":
+                    remove_metadata_exiftool(file_path)
+                else:
+                    remove_metadata_tags_exiftool(file_path, tags)
+
+            # Read back cleaned file bytes
+            with open(file_path, "rb") as f:
+                cleaned_bytes = f.read()
+
+            metadata, filtered, selectable = view_metadata(cleaned_bytes, suffix=os.path.splitext(file_id)[1])
+
+            cleaned_results.append({
+                "file": file_id,
+                "message": "File cleaned successfully",
+                # you can re-enable metadata inspection here if needed
+                # "metadata": metadata,
+                # "filtered_metadata": filtered_metadata,
+                "selectable_metadata": selectable,
+            })
+        except Exception as e:
+            cleaned_results.append({"file": file_id, "error": str(e)})
+
+    # Build download URL(s)
+    if len(files_to_clean) > 1:
+        zip_name = create_zip_file(list(files_to_clean.keys()), "cleaned_files")
+        download_url = f"/download/cleaned/{zip_name}"
+    else:
+        only_file = next(iter(files_to_clean))
+        download_url = f"/download/cleaned/{only_file}"
 
     return {"results": cleaned_results, "download_url": download_url}
 

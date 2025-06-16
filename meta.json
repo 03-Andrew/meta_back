@@ -1,0 +1,87 @@
+{
+    "JPEG/HEIC/TIFF": [
+      "EXIF:GPSLatitude",
+      "EXIF:GPSLongitude",
+      "EXIF:GPSAltitude",
+      "EXIF:DateTimeOriginal",
+      "EXIF:CreateDate",
+      "EXIF:ModifyDate",
+      "EXIF:Make",
+      "EXIF:Model",
+      "EXIF:SerialNumber",
+      "EXIF:Software",
+      "EXIF:LensMake",
+      "EXIF:LensModel",
+      "EXIF:LensSerialNumber",
+      "IPTC:By-line",
+      "IPTC:Caption-Abstract",
+      "XMP-dc:Creator",
+      "XMP-dc:Title",
+      "XMP-dc:Description",
+      "XMP:CreateDate",
+      "XMP:ModifyDate"
+    ],
+  
+    "PNG": [
+      "PNG:CreationTime",
+      "PNG:Author",
+      "PNG:Title",
+      "PNG:Description",
+      "PNG:Software",
+      "XMP:CreateDate",
+      "XMP:ModifyDate"
+    ],
+  
+    "PDF": [
+      "PDF:Author",
+      "PDF:Creator",
+      "PDF:Producer",
+      "PDF:CreationDate",
+      "PDF:CreateDate",
+      "PDF:ModDate",
+      "XMP-dc:Title",
+      "XMP-dc:Subject",
+      "XMP-dc:Description",
+      "XMP:MetadataDate",
+      "XMP:CreateDate",
+      "XMP:ModifyDate"
+    ],
+  
+    "DOCX/XLSX": [
+      "XMP:Creator",
+      "XMP:CreatorTool",
+      "XMP:CreateDate",
+      "XMP:ModifyDate",
+      "XMP-dc:creator",
+      "XMP-dc:description",
+      "XMP-tiff:Software",
+      "XMP-dc:rights",
+      "IPTC:By-line",
+      "File:Author",
+      "File:LastModifiedBy",
+      "File:Company"
+    ],
+  
+    "MP4/MOV": [
+      "QuickTime:CreationDate",
+      "QuickTime:Make",
+      "QuickTime:Model",
+      "QuickTime:GPSCoordinates",
+      "XMP-dc:Title",
+      "XMP-dc:Description",
+      "XMP:CreateDate",
+      "XMP:ModifyDate"
+    ],
+  
+    "MP3": [
+      "ID3:Artist",
+      "ID3:Album",
+      "ID3:Title",
+      "ID3:Track",
+      "ID3:Year",
+      "ID3:Comment",
+      "ID3:Composer",
+      "ID3:EncodedBy"
+    ]
+  }
+  
