@@ -18,9 +18,8 @@ import zipfile
 from openpyxl import load_workbook
 from openpyxl.packaging.core import DocumentProperties
 from typing import Dict, List
-from DocxHelper import DocxMetadataHelper as DM
-from ExcelHelper import ExcelMetadataHelper as EM
 from monitor import PerformanceMiddleware
+from OfficeMetadataHelper import OfficeMetadataHelper as OMH
 
 
 
@@ -92,14 +91,14 @@ def view_metadata(file_bytes, suffix):
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file_bytes)
             tmp.flush()  # Ensure all bytes are written
-            meta = DM.get_metadata(tmp.name)
+            meta = OMH.get_metadata(tmp.name)
             return {}, {}, meta
         
     if suffix == ".xlsx":
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file_bytes)
             tmp.flush()
-            meta = EM.get_metadata(tmp.name)
+            meta = OMH.get_metadata(tmp.name)
             return {}, {}, meta
         
     group = EXTENSION_GROUPS.get(suffix.lower())
@@ -185,7 +184,7 @@ def remove_metadata_docx(file_path, file_id):
     return output_path
 
 def remove_metadata_tags_docx(file_path: str, tags: List[str]):
-    DM.delete_metadata(file_path, tags)
+    OMH.delete_metadata(file_path, tags)
 
 def remove_metadata_excel(file_path, file_id):
     output_path = os.path.join(TEMP_DIR, f"{file_id}")
@@ -209,7 +208,7 @@ def remove_metadata_excel(file_path, file_id):
         return None
 
 def remove_metadata_tags_excel(file_path: str, tags: List[str]):
-    EM.delete_metadata(file_path, tags)
+    OMH.delete_metadata(file_path, tags)
 
 def create_zip_file(file_paths, zip_name):
     zip_path = os.path.join(TEMP_DIR, zip_name)
